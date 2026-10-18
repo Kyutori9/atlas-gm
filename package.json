@@ -1,0 +1,22 @@
+{
+  "name": "atlas-gm",
+  "version": "0.1.0",
+  "description": "Atlas GM - interactive novel game master",
+  "author": "Atlas GM",
+  "main": "electron/main.js",
+  "scripts": { "start": "electron ." },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/android": "^6.1.2"
+  },
+  "build": {
+    "appId": "app.atlasgm",
+    "productName": "Atlas GM",
+    "files": ["electron/**", "www/**"],
+    "directories": { "output": "dist" },
+    "win": { "target": ["nsis", "portable"] }
+  }
+}

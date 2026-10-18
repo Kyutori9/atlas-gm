@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14110f">
+<title>Atlas GM — offline interactive novel</title>
+<style>
+:root{--bg:#14110f;--fg:#e8e0d2;--mut:#9b917f;--ac:#d4a24c;--card:#1f1a16;--bd:#3a3128;color-scheme:dark}
+@media(prefers-color-scheme:light){:root{--bg:#f6f1e7;--fg:#241d15;--mut:#6e6454;--ac:#8a5a12;--card:#fffaf0;--bd:#d8ccb4;color-scheme:light}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:18px/1.6 Georgia,serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+header{display:flex;gap:6px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--bd);font:14px system-ui;flex-wrap:wrap}
+header b{flex:1;color:var(--ac);min-width:90px}
+button{font:15px system-ui;background:var(--card);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:10px 14px;cursor:pointer}
+button:hover{border-color:var(--ac)}
+#story{flex:1;overflow:auto;padding:16px;max-width:780px;width:100%;margin:0 auto}
+#story p{margin:0 0 1em}.hd{color:var(--ac);font:12px system-ui;letter-spacing:.08em;text-transform:uppercase;margin:1.4em 0 .5em}
+.you{color:var(--mut);font-style:italic}.sys{color:var(--mut);font:14px system-ui;border-left:3px solid var(--bd);padding-left:10px}
+#ch{display:flex;flex-wrap:wrap;gap:8px;padding:8px 16px;max-width:780px;width:100%;margin:0 auto}
+#in{display:flex;gap:8px;padding:6px 16px 12px;max-width:780px;width:100%;margin:0 auto}
+input,textarea,select{font:16px system-ui;padding:10px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--fg)}
+#in input{flex:1}
+dialog{background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:12px;max-width:94vw;width:660px;max-height:88vh;font:15px/1.5 system-ui}
+dialog h3{color:var(--ac);margin:1em 0 .3em;font-size:14px;text-transform:uppercase;letter-spacing:.06em}
+dialog textarea{width:100%;height:180px}.mut{color:var(--mut)}.row{margin:6px 0}
+</style></head><body>
+<header><b>Atlas GM</b>
+<button onclick="journal()">Journal</button><button onclick="saves()">Saves</button><button onclick="packs()">Worlds</button><button onclick="newGame()">New</button></header>
+<div id="story"></div><div id="ch"></div>
+<div id="in"><input id="txt" placeholder="Type: go to the quay · speak with … · wait 3 days · rest · practise …" autocomplete="off"><button onclick="submit()">Send</button></div>
+<dialog id="d"><h2 id="dt" style="margin-top:0"></h2><div id="dc"></div><p><button onclick="document.getElementById('d').close()">Close</button></p></dialog>
+<script>
+"use strict";
+const $=s=>document.querySelector(s),clone=o=>JSON.parse(JSON.stringify(o)),cap=s=>s.charAt(0).toUpperCase()+s.slice(1);
+const LS={g:(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}},s:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+function rng(seed){let a=(seed>>>0)||1;return()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
+const pick=(r,a)=>a[Math.floor(r()*a.length)];
+function h(t,p={},...k){const e=document.createElement(t);for(const[a,v]of Object.entries(p))a.startsWith('on')?e.addEventListener(a.slice(2),v):a==='class'?e.className=v:e[a]=v;k.flat().forEach(c=>e.append(c));return e}
+function dl(n,t){const a=h('a',{href:URL.createObjectURL(new Blob([t],{type:'application/json'})),download:n});document.body.append(a);a.click();a.remove()}
+
+/* ===== WORLD PACK (sample, original). Add more worlds via the Worlds button. ===== */
+const SALT={id:'saltroad',name:'The Salt Road (sample world)',
+intro:'The river town of Marrowford lives on one road, and salt, grain and debt all travel it. This autumn the Salt Guild means to tighten its hold, and everyone in town has a private reason to care.',
+weather:['grey drizzle','a hard bright wind','low river fog','dry cold sun','sticky heat before rain'],
+places:{
+inn:{n:'the Gull & Lantern',d:'a low timber inn that smells of smoked eel and wet wool',x:['market','quay'],g:1},
+market:{n:'Cooper’s Market',d:'a cobbled square of barrel-stalls and shouted prices',x:['inn','toll','quay'],g:1},
+quay:{n:'the Eel Quay',d:'plank stairs, tarred rope and a ferry straining at its mooring',x:['inn','market']},
+toll:{n:'the Guild tollhouse',d:'a squat stone house with a lowered bar across the road',x:['market','ridge']},
+ridge:{n:'Windrow Ridge',d:'sheep-bitten grass above the valley, where the road bends out of sight',x:['toll']}},
+names:{f:['Maren','Odo','Ilse','Bram','Tove','Hale','Nessa','Corin','Wen','Pell'],l:['Tarrow','Quill','Ashby','Venn','Marl','Dray','Keld','Sorrel']},
+roles:[
+{r:'innkeeper',at:'inn',work:'wipes the long table while counting the night’s bowls',concern:'the cellar flooded and two casks are ruined',means:['rooms','gossip','credit'],knows:[{f:'The ferry stops running once the river passes the third stair.'},{f:'The tollhouse clerk has been sleeping at the inn under another name.',p:1}],voice:'wry',omit:'never mentions the price of a room until asked'},
+{r:'ferrywoman',at:'quay',work:'scrapes weed from the ferry’s hull',concern:'a cracked plank that will not survive the autumn tides',means:['the ferry','river lore'],knows:[{f:'Carters now pay her double to cross, because the toll road costs more.'},{f:'Armed men have been carrying crates up the ridge at night.',p:1}],voice:'blunt',omit:'does not speak of her late husband'},
+{r:'cooper',at:'market',work:'trues a barrel hoop with a mallet',concern:'the Guild wants his barrels marked, and marked barrels cost more',means:['barrels','standing in the market'],knows:[{f:'Salt barrels leave the tollhouse lighter than they arrive.'},{f:'The Guild treasurer is his wife’s cousin.',p:1}],voice:'courteous',omit:'avoids naming the treasurer'},
+{r:'toll clerk',at:'toll',work:'writes tallies in a ledger with cold fingers',concern:'a tally that will not balance before the inspection',means:['the ledger','the bar','the Guild seal'],knows:[{f:'A new tariff is already written; it only waits for a date.'},{f:'The missing salt is entered under a false cart number.',p:1}],voice:'shy',omit:'keeps the ledger angled away'},
+{r:'shepherd',at:'ridge',work:'mends a hurdle fence',concern:'a ewe has gone missing near the old road cut',means:['dogs','ridge paths'],knows:[{f:'A goat track skirts the toll bar; carts cannot use it but people can.'},{f:'Lantern lights gather at the road cut on moonless nights.',p:1}],voice:'blunt',omit:'never says how many sheep he has'}],
+fronts:[{id:'toll',owner:'the Salt Guild',goal:'tighten the toll on the river road',place:'toll',every:4,steps:['A clerk paces the road with a knotted rope.','A new tariff board is nailed above the tollhouse door.','Carters are turning back at the bar.','Watchmen with staves hold the ford.']}],
+skills:{rivercraft:{n:'river-craft',days:3,cost:2,teacher:'ferrywoman'},ledgercraft:{n:'ledger-craft',days:4,cost:3,teacher:'toll clerk'}},
+coin:8,start:'inn'};
+let PACKS=[SALT,...LS.g('atlas.packs',[])];
+const okPack=p=>!!(p&&p.id&&p.name&&p.places&&p.start in p.places&&p.names&&p.names.f&&p.names.l&&p.weather&&p.weather.length&&Array.isArray(p.roles)&&p.roles.length&&Array.isArray(p.fronts)&&p.skills&&Object.values(p.places).every(x=>x.n&&x.d&&Array.isArray(x.x)&&x.x.every(y=>y in p.places))&&p.roles.every(r=>r.at in p.places&&r.r&&r.work&&r.concern&&r.means&&r.knows&&r.voice&&r.omit)&&p.fronts.every(f=>f.place in p.places&&f.steps&&f.steps.length&&f.every));
+const pack=C=>PACKS.find(p=>p.id==C.pack)||PACKS[0];
+
+/* ===== ENGINE: accepted state -> route -> simulate -> admit -> candidate -> lint -> commit ===== */
+const SL=['dawn','midday','dusk','night'];
+const V={blunt:s=>s,courteous:s=>'if you will hear it, '+s,wry:s=>s+', as these things go',shy:s=>'well… '+s};
+const say=(a,s)=>{s=(V[a.voice]||(x=>x))(s).replace(/[.]+$/,'');return '“'+cap(s)+'.”'};
+const fr=a=>a.name.split(' ')[0];
+const WX=(C,P)=>P.weather[(C.day*7+C.seed)%P.weather.length];
+const learn=(C,o)=>{if(!C.pc.known.some(x=>x.f==o.f))C.pc.known.push({d:C.day,...o})};
+function newCampaign(pid,name,bg){const P=PACKS.find(p=>p.id==pid);
+const C={v:1,pack:pid,seed:Math.floor(Math.random()*1e9),rev:0,day:1,slot:0,place:P.start,conv:null,
+pc:{name:name||'Traveller',bg:bg||'',coin:P.coin||5,fat:0,skills:{},prog:{},known:[],seen:{}},
+actors:{},fronts:{},log:[],pending:[],pat:[],visits:{},story:[],choices:[],packet:null};
+P.fronts.forEach(f=>C.fronts[f.id]={step:0,next:1+f.every});return C}
+/* Actor admission: nobody appears on camera without a full prior-life dossier */
+function admit(C,R,role){let a=Object.values(C.actors).find(x=>x.role==role.r&&x.at==role.at);if(a)return a;
+const P=pack(C),id='a'+(Object.keys(C.actors).length+1);let name;
+do{name=P.names.f[Math.floor(R()*P.names.f.length)]+' '+P.names.l[Math.floor(R()*P.names.l.length)]}while(Object.values(C.actors).some(x=>x.name==name));
+const o=Object.values(C.actors),t=o.length?{w:o[Math.floor(R()*o.length)].id,k:['cousin','old creditor','former neighbour','sworn friend'][Math.floor(R()*4)]}:{w:null,k:'a sister two valleys away'};
+a={id,name,role:role.r,at:role.at,age:20+Math.floor(R()*45),work:role.work,concern:role.concern,means:role.means,knows:role.knows,voice:role.voice,omit:role.omit,tie:t,rel:0,urgency:1,resolved:false,due:C.day+2+Math.floor(R()*4),adapt:[],met:false,ready:true};
+C.actors[id]=a;return a}
+const presentActors=(C,R)=>(C.slot==3&&C.place!='inn')?[]:pack(C).roles.filter(r=>r.at==C.place).map(r=>admit(C,R,r));
+/* Independent processes: fronts and people keep living while the PC is elsewhere */
+function day(C,R){const P=pack(C);C.pc.coin-=1;if(C.pc.coin<0){C.pc.coin=0;C.pc.fat=Math.min(5,C.pc.fat+1)}
+for(const f of P.fronts){const s=C.fronts[f.id];if(C.day>=s.next&&s.step<f.steps.length){s.step++;s.next=C.day+f.every;C.log.push({d:C.day,t:f.steps[s.step-1],fid:f.id})}}
+for(const a of Object.values(C.actors))if(!a.resolved&&C.day>=a.due){if(R()<.5){a.resolved='alone';a.adapt.push('settled their trouble alone on day '+C.day);C.log.push({d:C.day,t:a.name+' settled: '+a.concern,who:a.id})}else{a.urgency++;a.due=C.day+3;C.log.push({d:C.day,t:a.name+'’s trouble grew',who:a.id})}}}
+function adv(C,R,n){for(let i=0;i<n;i++){C.slot++;if(C.slot>3){C.slot=0;C.day++;day(C,R)}}}
+function shapes(C,pres,R){const P=pack(C),l=['arrival'];
+if(pres.some(a=>!a.resolved))l.push('overheard');if(pres.length)l.push('work');
+if(P.fronts.some(f=>f.place==C.place&&C.fronts[f.id].step>0))l.push('notice');
+if((C.visits[C.place]||0)>=3)l.push('quiet');
+for(let i=l.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[l[i],l[j]]=[l[j],l[i]]}return l}
+function chooseStruct(C,R,pres){const P=pack(C);
+if(P.fronts.some(f=>f.place==C.place&&C.fronts[f.id].step>(C.pc.seen[f.id]||0)))return{s:'notice',w:'an unseen change must surface'};
+const ok=shapes(C,pres,R),rec=C.pat.slice(-2),fresh=ok.filter(s=>!rec.includes(s));
+return fresh.length?{s:fresh[0]}:{s:ok[0],w:'only viable shape'}}
+function stdCh(C,pres){const P=pack(C),pl=P.places[C.place],ch=[];
+pres.forEach(a=>ch.push({l:'Speak with '+a.name,a:{t:'talk',id:a.id}}));
+for(const[k,sk]of Object.entries(P.skills)){if(C.pc.skills[k])continue;const t=pres.find(a=>a.role==sk.teacher&&a.rel>=1);if(t)ch.push({l:`Practise ${sk.n} with ${fr(t)} (${sk.cost} coin, ${sk.days} sessions)`,a:{t:'train',skill:k}})}
+pl.x.forEach(x=>ch.push({l:'Go to '+P.places[x].n,a:{t:'go',to:x}}));
+ch.push({l:'Wait a while',a:{t:'wait'}});if(C.pc.fat>0)ch.push({l:'Rest',a:{t:'rest'}});ch.push({l:'Let three days pass',a:{t:'skip',n:3}});return ch}
+function topics(C,a){const c=[{l:'Ask about their work',a:{t:'ask',id:a.id,topic:'work'}},{l:'Ask what is troubling them',a:{t:'ask',id:a.id,topic:'concern'}},{l:'Ask what they have heard lately',a:{t:'ask',id:a.id,topic:'rumor'}}];
+if(C.pending.some(p=>p.owner==a.id&&p.open))c.push({l:'Offer to help',a:{t:'ask',id:a.id,topic:'help'}});c.push({l:'Step away',a:{t:'leave'}});return c}
+function buildScene(C,R,s,pres){const P=pack(C),pl=P.places[C.place],used=[],p=[];
+const head=`${cap(SL[C.slot])}, ${WX(C,P)}: ${pl.n} — ${pl.d}.`,ids=a=>{if(!used.includes(a.id))used.push(a.id)};
+const line=a=>{ids(a);const t=a.met?`${a.name} ${a.work}.`:`${a.name}, the ${a.role}, ${a.work}.`;a.met=true;return t+(a.resolved?` The weight from before has gone out of ${fr(a)}’s shoulders.`:a.urgency>1?` ${fr(a)} looks like someone whose trouble has had time to grow.`:'')};
+if(s=='arrival'){p.push(head);pres.slice(0,2).forEach(a=>p.push(line(a)));if(!pres.length)p.push('Nobody with business here is about at this hour.');else if(pres.length>2)p.push('Others pass through, none the day needs.')}
+else if(s=='overheard'){const a=pres.find(a=>!a.resolved)||pres[0];ids(a);p.push(head);p.push(`Across the noise, ${a.met?a.name:a.name+', the '+a.role+','} mutters something not meant for anyone: ${say(a,a.concern)}`);a.met=true;learn(C,{f:`${a.name} was heard fretting: ${a.concern}`,from:a.id,c:a.id})}
+else if(s=='work'){const a=pres[Math.floor(R()*pres.length)];p.push(head);p.push(line(a));p.push(`Within reach: ${a.means.join(', ')}. ${fr(a)} ${a.omit}.`)}
+else if(s=='notice'){const f=P.fronts.find(f=>f.place==C.place&&C.fronts[f.id].step>0),st=C.fronts[f.id].step;p.push(head);p.push('Plain to anyone passing: '+f.steps[st-1]);C.pc.seen[f.id]=st;learn(C,{f:f.steps[st-1],from:null});if(pres.length)p.push(line(pres[0]))}
+else{p.push(head);p.push('By now the place sorts itself into ordinary sounds, and the ordinary makes anything out of place easier to hear.');p.push(pres.length?line(pres[0]):'The few people about keep to their own business.')}
+return{paras:p,choices:stdCh(C,pres),used}}
+function resolve(C,R,act){const P=pack(C),pl=P.places[C.place];let pre=[],sys=[],risk='connective',route=act.t,alts,out;
+const scene=()=>{const pres=presentActors(C,R),s=chooseStruct(C,R,pres),b=buildScene(C,R,s.s,pres);return{...b,struct:s.s,warrant:s.w}};
+const gone=(id)=>{const a=C.actors[id];if(!a||a.at!=C.place||(C.slot==3&&C.place!='inn'))throw{soft:'That person isn’t here right now.'};return a};
+switch(act.t){
+case'open':{risk='high';route='opening';C.visits[C.place]=1;const pres=presentActors(C,R);alts=shapes(C,pres,R).slice(0,2);let best=null;
+for(const s of alts){const t=clone(C),b=buildScene(t,rng(C.seed),s,pres.map(a=>t.actors[a.id])),sc=b.choices.length+(b.used.length<=3?2:0);if(!best||sc>best.sc)best={s,sc}}
+const b=buildScene(C,rng(C.seed),best.s,pres);pre=[P.intro];out={...b,struct:best.s};
+sys=['Control: the GM never speaks, acts or decides for your character.','Tap a button or type: go to the quay · speak with … · wait 3 days · rest · practise …'];break}
+case'go':{if(act.to!=C.place&&!pl.x.includes(act.to))throw{soft:'That place isn’t reachable directly from here.'};
+const first=!C.visits[act.to];C.place=act.to;C.conv=null;C.visits[act.to]=(C.visits[act.to]||0)+1;adv(C,R,1);risk=first?'consequential':'connective';route=first?'new_domain':'travel';out=scene();break}
+case'wait':C.conv=null;adv(C,R,1);route='bare_continue';out=scene();break;
+case'leave':C.conv=null;out=scene();break;
+case'rest':{C.conv=null;const inn=C.place=='inn'&&C.pc.coin>=1;if(inn)C.pc.coin--;C.pc.fat=inn?0:Math.max(0,C.pc.fat-2);adv(C,R,2);pre=[inn?'A paid bed, a thin blanket and a few hours of real sleep.':'A sheltered corner, a coat for a pillow, uneven rest.'];out=scene();break}
+case'skip':{risk='high';route='time_skip';C.conv=null;const open=C.pending.filter(p=>p.open);
+if(open.length)pre.push('Before the days pass, still open: '+open.map(p=>p.t).join('; ')+'.');
+const bs={};P.fronts.forEach(f=>bs[f.id]=C.fronts[f.id].step);const bres=Object.values(C.actors).filter(a=>a.resolved).map(a=>a.id);
+adv(C,R,act.n*4);
+for(const a of Object.values(C.actors))if(a.resolved=='alone'&&!bres.includes(a.id)){const p=C.pending.find(p=>p.owner==a.id&&p.open);if(p){p.open=false;pre.push(a.name+' settled it without you in the end: '+a.concern+'.')}}
+for(const f of P.fronts){const st=C.fronts[f.id].step;if(st>bs[f.id]&&pl.g){pre.push('Word travels faster than carts here; by now people are saying: '+f.steps[st-1]);C.pc.seen[f.id]=st;learn(C,{f:f.steps[st-1],from:null})}}
+pre.push(`${act.n} days go by; ${SL[C.slot]} light lies on ${pl.n}.`);out=scene();break}
+case'talk':{const a=gone(act.id);C.conv=a.id;risk='consequential';route='dialogue';a.met=true;out={paras:[`${fr(a)} stops long enough to give you a measuring look.`],used:[a.id]};break}
+case'ask':{const a=gone(act.id);C.conv=a.id;risk='consequential';route='dialogue';const k=C.pc.known;let tx;
+if(act.topic=='work'){tx=`${fr(a)} lets the work rest. ${say(a,'it keeps me fed; I deal in '+a.means.join(' and '))} ${fr(a)} ${a.omit}.`;if(!a.asked){a.asked=1;a.rel++}}
+else if(act.topic=='concern'){if(!(a.rel>=1||k.some(x=>x.c==a.id)))tx=`${fr(a)} answers shortly. Something sits under the words, and it stays there.`;
+else if(a.resolved){tx=`${fr(a)}: `+say(a,a.resolved=='help'?'that is behind me now, thanks to you':'that is dealt with; no need to carry it');const p=C.pending.find(p=>p.owner==a.id);if(p)p.open=false}
+else{tx=say(a,'it is this — '+a.concern+(a.urgency>1?'; and it is worse than it was':''));learn(C,{f:`${a.name}’s trouble: ${a.concern}`,from:a.id,c:a.id});if(!C.pending.some(p=>p.owner==a.id))C.pending.push({id:'p'+a.id,owner:a.id,t:`${a.name} (${a.role}) has a trouble: ${a.concern}`,open:true})}}
+else if(act.topic=='rumor'){const items=a.knows.filter(x=>(!x.p||a.rel>=2)&&!k.some(y=>y.f==x.f)),fs=P.fronts.filter(f=>C.fronts[f.id].step>0&&(C.pc.seen[f.id]||0)<C.fronts[f.id].step);
+if(fs.length){const f=fs[0],st=C.fronts[f.id].step,t=f.steps[st-1];tx=say(a,'they say '+t.charAt(0).toLowerCase()+t.slice(1));C.pc.seen[f.id]=st;learn(C,{f:t,from:a.id})}
+else if(items.length){const t=items[0].f;tx=say(a,t.charAt(0).toLowerCase()+t.slice(1));learn(C,{f:t,from:a.id})}
+else tx=`${fr(a)} shrugs the question off; ${a.rel<2?'not everything is for a stranger’s ears.':'there is nothing more worth telling.'}`}
+else{const op=C.pending.find(p=>p.owner==a.id&&p.open);if(!op||a.resolved)throw{soft:'There is nothing to help with right now.'};if(C.pc.fat>=4)throw{soft:'Your character is too worn out to help — rest first.'};
+a.resolved='help';a.rel+=2;a.adapt.push('was helped by the PC on day '+C.day);op.open=false;C.pc.fat++;C.pc.coin++;adv(C,R,1);
+tx=`The hours go by beside ${fr(a)} until the worst of it is dealt with. ${fr(a)} says, ${say(a,'I will remember this')} A coin changes hands for the effort.`}
+out={paras:[tx],used:[a.id]};break}
+case'train':{const sk=P.skills[act.skill];const t=Object.values(C.actors).find(a=>a.role==sk.teacher&&a.at==C.place&&a.rel>=1);
+if(!t)throw{soft:'You need the teacher here, and some trust first — speak with them.'};if(C.pc.skills[act.skill])throw{soft:'You already have this.'};if(C.pc.fat>=4)throw{soft:'Too worn out to practise — rest first.'};
+const n=C.pc.prog[act.skill]||0;if(n==0){if(C.pc.coin<sk.cost)throw{soft:`You can’t afford the fee (${sk.cost} coin).`};C.pc.coin-=sk.cost}
+C.pc.prog[act.skill]=n+1;C.pc.fat++;adv(C,R,1);risk='consequential';route='training';const done=n+1>=sk.days;if(done)C.pc.skills[act.skill]=1;
+pre=[done?`After the last session ${fr(t)} gives a short nod: ${sk.n} is yours now.`:`${fr(t)} drills the work of ${sk.n}, session ${n+1} of ${sk.days}.`];out=scene();break}
+default:throw{soft:'Not understood.'}}
+if(C.conv){const a=C.actors[C.conv];if(!a||a.at!=C.place||(C.slot==3&&C.place!='inn'))C.conv=null}
+const ch=out.choices||(C.conv?topics(C,C.actors[C.conv]):stdCh(C,presentActors(C,R)));
+return{paras:[...pre,...out.paras],sys,choices:ch,used:out.used||[],struct:out.struct||null,warrant:out.warrant||null,risk,route,alts}}
+/* Surface lint: reject the candidate instead of publishing it */
+const BAN=[/how can i help/i,/as an ai/i,/\bgreat question\b/i,/\b(runtime|checklist|packet|atlas)\b/i],PCV=/\byou (decide|say|ask|reply|answer|choose|promise|agree|smile|nod|think|feel|want|believe|wonder|realize)\b/i;
+function lint(C,o){const e=[],t=o.paras.join('\n');if(PCV.test(t))e.push('pc_control');BAN.forEach(b=>b.test(t)&&e.push('surface'));
+for(const id of o.used){const a=C.actors[id];if(!a||!a.ready||!a.tie||!a.concern||!a.work||!a.omit)e.push('actor_admission:'+id)}
+if(o.choices.length<2)e.push('player_leverage');if(o.struct&&C.pat.slice(-2).includes(o.struct)&&!o.warrant)e.push('repeat_structure');return e}
+function play(S,act,label){let last='';
+for(let at=0;at<6;at++){const C=clone(S),R=rng(S.seed+S.rev*131+at*7+1);let o;
+try{o=resolve(C,R,act)}catch(e){if(e&&e.soft)return{soft:e.soft};last=String(e);continue}
+const bad=lint(C,o);if(bad.length){last=bad.join(',');continue}
+const P=pack(C);C.rev++;if(o.struct)C.pat=[...C.pat,o.struct].slice(-6);C.choices=o.choices;
+C.packet={schema:'atlas-turn-lite-1',rev:C.rev,risk:o.risk,route:o.route,structure:o.struct,repeat_warrant:o.warrant,alternatives:o.alts||null,actors:o.used,attempts:at+1,gates:'all passed',checked_by:'built-in deterministic linter (not an independent reviewer)'};
+C.story.push({you:label||null,hd:`Day ${C.day} · ${SL[C.slot]} · ${P.places[C.place].n}`,p:o.paras,sys:o.sys});C.story=C.story.slice(-80);return{C}}
+return{soft:'This turn could not be validated, so nothing changed. ('+last+')'}}
+
+/* ===== INTERFACE ===== */
+let S=null;
+function entry(e){const s=$('#story');if(e.you)s.append(h('p',{class:'you'},'› '+e.you));if(e.hd)s.append(h('div',{class:'hd'},e.hd));(e.p||[]).forEach(x=>s.append(h('p',{},x)));(e.sys||[]).forEach(x=>s.append(h('p',{class:'sys'},x)));s.scrollTop=s.scrollHeight}
+function chs(){$('#ch').replaceChildren(...S.choices.map(c=>h('button',{onclick:()=>act(c.a,c.l)},c.l)))}
+function load(C){S=C;$('#story').replaceChildren();S.story.forEach(entry);chs()}
+function act(a,l){const r=play(S,a,l);if(r.soft){entry({sys:[r.soft]});return}S=r.C;entry(S.story[S.story.length-1]);chs();LS.s('atlas.auto',S)}
+function parse(t,C){const P=pack(C);t=t.toLowerCase().trim();if(!t)return{t:'wait'};
+const here=Object.values(C.actors).filter(a=>a.at==C.place&&!(C.slot==3&&C.place!='inn'));
+if(/^(skip|pass)|\bdays?\b/.test(t))return{t:'skip',n:Math.min(30,Math.max(1,+(t.match(/\d+/)||[3])[0]))};
+if(/^(wait|continue)/.test(t))return{t:'wait'};if(/^(rest|sleep)/.test(t))return{t:'rest'};
+const sk=Object.keys(P.skills).find(k=>t.includes(P.skills[k].n.toLowerCase())||t.includes(k));if(sk&&/train|learn|practi/.test(t))return{t:'train',skill:sk};
+const a=here.find(a=>t.includes(a.name.toLowerCase().split(' ')[0])||t.includes(a.role));
+const topic=/help/.test(t)?'help':/rumou?r|news|heard/.test(t)?'rumor':/trouble|worr|concern|wrong/.test(t)?'concern':/work/.test(t)?'work':null;
+if(a&&(topic||/talk|speak|greet|ask/.test(t)))return topic&&C.conv==a.id?{t:'ask',id:a.id,topic}:{t:'talk',id:a.id};
+if(C.conv&&topic)return{t:'ask',id:C.conv,topic};
+const pl=Object.keys(P.places).find(k=>t.includes(P.places[k].n.toLowerCase().replace(/^the /,''))||t.includes(k));if(pl)return{t:'go',to:pl};return null}
+function submit(){if(!S)return;const i=$('#txt'),t=i.value;i.value='';const a=parse(t,S);if(!a){entry({sys:['Not understood. Try: go to the quay · speak with … · ask about work · wait 3 days · rest · practise …']});return}act(a,t||'Wait')}
+$('#txt').addEventListener('keydown',e=>{if(e.key=='Enter')submit()});
+function dlg(t,n){$('#dt').textContent=t;$('#dc').replaceChildren(n);if(!$('#d').open)$('#d').showModal()}
+function journal(){if(!S)return;const C=S,P=pack(C),b=h('div');
+const sec=(t,it)=>{b.append(h('h3',{},t));it.length?it.forEach(i=>b.append(h('div',{class:'row'},i))):b.append(h('div',{class:'mut'},'—'))};
+sec('Status',[`Day ${C.day}, ${SL[C.slot]} · ${P.places[C.place].n}`,`Coin ${C.pc.coin} · Fatigue ${C.pc.fat}/5`,'Skills: '+(Object.keys(C.pc.skills).map(k=>P.skills[k].n).join(', ')||'none yet')+Object.entries(C.pc.prog).filter(([k])=>!C.pc.skills[k]).map(([k,n])=>` · ${P.skills[k].n} ${n}/${P.skills[k].days}`).join('')]);
+sec('People',Object.values(C.actors).filter(a=>a.met).map(a=>`${a.name} — ${a.role} (${['stranger','acquaintance','trusted','ally'][Math.min(3,a.rel)]})`+(a.adapt.length?' · '+a.adapt.join('; '):'')));
+sec('Open matters',C.pending.filter(p=>p.open).map(p=>p.t));sec('What you know',C.pc.known.map(k=>`Day ${k.d}: ${k.f}`));
+sec('Last turn card',[JSON.stringify(C.packet)]);dlg('Journal — '+C.pc.name,b)}
+function saves(){const b=h('div'),slots=LS.g('atlas.slots',{}),nm=h('input',{placeholder:'Save name',value:S?S.pc.name+' · day '+S.day:''});
+b.append(nm,h('button',{onclick:()=>{if(!S)return;slots[nm.value||'save']=S;LS.s('atlas.slots',slots);saves()}},'Save'),h('button',{onclick:()=>S&&dl('atlas-save.json',JSON.stringify(S))},'Export file'));
+Object.keys(slots).forEach(k=>b.append(h('div',{class:'row'},k+' ',h('button',{onclick:()=>{load(slots[k]);$('#d').close()}},'Load'),h('button',{onclick:()=>{delete slots[k];LS.s('atlas.slots',slots);saves()}},'Delete'))));
+const f=h('input',{type:'file',accept:'.json',onchange:async()=>{try{load(JSON.parse(await f.files[0].text()));$('#d').close()}catch(e){alert('Not a valid save file')}}});
+b.append(h('div',{class:'row'},'Import a save file: ',f),h('p',{class:'mut'},'The game autosaves in this browser after every turn. Use “Export file” now and then as a backup.'));dlg('Saves',b)}
+function packs(){const b=h('div'),ta=h('textarea',{placeholder:'Paste a world pack (JSON) here'});
+b.append(h('p',{},'Installed worlds: '+PACKS.map(p=>p.name).join(' · ')),ta,h('div',{class:'row'},h('button',{onclick:()=>{try{const p=JSON.parse(ta.value);if(!okPack(p))throw 0;PACKS=PACKS.filter(x=>x.id!=p.id);PACKS.push(p);LS.s('atlas.packs',PACKS.filter(x=>x.id!='saltroad'));alert('World added: '+p.name);packs()}catch(e){alert('That is not a valid world pack. Download the template and compare.')}}},'Add world'),h('button',{onclick:()=>dl('world-pack-template.json',JSON.stringify(SALT,null,1))},'Download template')),
+h('p',{class:'mut'},'A world is plain text. Send the template to me in chat and ask for a new setting; paste the result here. Everything runs offline.'));dlg('Worlds',b)}
+function newGame(){const sel=h('select',{},PACKS.map(p=>h('option',{value:p.id},p.name))),nm=h('input',{placeholder:'Your character’s name'}),bg=h('textarea',{placeholder:'Optional: who your character is (kept in your save)'});
+dlg('New campaign',h('div',{},h('p',{},'World: ',sel),h('p',{},nm),h('p',{},bg),h('p',{class:'mut'},'The GM will never speak, act or decide for your character.'),h('button',{onclick:()=>{const r=play(newCampaign(sel.value,nm.value.trim(),bg.value),{t:'open'});if(r.soft){alert(r.soft);return}$('#d').close();load(r.C);LS.s('atlas.auto',S)}},'Begin')))}
+const sv=LS.g('atlas.auto',null);if(sv&&PACKS.some(p=>p.id==sv.pack))load(sv);else newGame();
+</script></body></html>
